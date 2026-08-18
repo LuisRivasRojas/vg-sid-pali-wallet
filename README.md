@@ -6,7 +6,7 @@ Demo práctica con Svelte que se conecta a Pali Wallet para iniciar sesión, lee
 
 ---
 
-## 🚀 Cómo correr el proyecto
+## Cómo correr el proyecto
 
 ```bash
 npm install
@@ -20,7 +20,7 @@ Abrir en el navegador: `http://localhost:5173`
 
 ---
 
-## 🔧 Tecnologías usadas
+## Tecnologías usadas
 
 - **Svelte 5** — framework JavaScript reactivo
 - **Vite** — bundler y servidor de desarrollo
@@ -29,7 +29,7 @@ Abrir en el navegador: `http://localhost:5173`
 
 ---
 
-## ⚙️ ¿Cómo funciona la conexión?
+## ¿Cómo funciona la conexión?
 
 1. La app detecta `window.ethereum` inyectado por Pali Wallet en el navegador
 2. Usa `eth_requestAccounts` para solicitar permiso y obtener el address
@@ -38,7 +38,7 @@ Abrir en el navegador: `http://localhost:5173`
 
 ---
 
-## 📋 Funcionalidades
+## Funcionalidades
 
 - ✅ Iniciar sesión con Pali Wallet
 - ✅ Leer y mostrar el address de la wallet
@@ -50,7 +50,7 @@ Abrir en el navegador: `http://localhost:5173`
 
 ---
 
-## 📚 Parte 1: Investigación — Casos de uso de Smart Contracts en dApps
+## Parte 1: Investigación — Casos de uso de Smart Contracts en dApps
 
 ### Caso 1: Uniswap (DeFi — Exchange Descentralizado)
 
@@ -93,7 +93,7 @@ También implementa **Flash Loans**: préstamos sin colateral que se toman y dev
 
 ---
 
-## 🌏 Oportunidad de dApp para el Perú
+## Oportunidad de dApp para el Perú
 
 **Propuesta: Sistema de remesas descentralizadas Perú ↔ Exterior**
 
