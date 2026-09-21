@@ -1,691 +1,628 @@
 <script>
   import { onMount } from 'svelte';
+  import HomePage        from './lib/HomePage.svelte';
+  import TransactionPage from './lib/TransactionPage.svelte';
+  import NetworkPage     from './lib/NetworkPage.svelte';
+  import BalancePage     from './lib/BalancePage.svelte';
 
-  // Estado de la aplicación
-  let account = $state(null);
-  let balance = $state(null);
+  // ── Estado global de la wallet ────────────────────────────────
+  let account      = $state(null);
+  let networkName  = $state(null);
+  let chainId      = $state(null);
+  let isConnected  = $state(false);
   let isConnecting = $state(false);
-  let error = $state(null);
-  let isConnected = $state(false);
-  let networkName = $state(null);
+  let error        = $state(null);
 
-  // Verificar si Pali Wallet está instalada
-  function isPaliWalletAvailable() {
+  // ── Navegación ────────────────────────────────────────────────
+  let currentPage = $state('home');
+
+  const NAV_ITEMS = [
+    { id: 'home',        label: 'Inicio',         short: 'Inicio' },
+    { id: 'transaction', label: 'Transacciones',   short: 'Enviar' },
+    { id: 'network',     label: 'Redes',           short: 'Redes' },
+    { id: 'balance',     label: 'Consultar Saldo', short: 'Saldo' },
+  ];
+
+  // ── Wallet ────────────────────────────────────────────────────
+  function isPaliAvailable() {
     return typeof window !== 'undefined' && typeof window.ethereum !== 'undefined';
   }
 
-  // Conectar con Pali Wallet
   async function connectWallet() {
     error = null;
-
-    if (!isPaliWalletAvailable()) {
-      error = 'Pali Wallet no está instalada. Por favor instálala desde pali.syscoin.org';
+    if (!isPaliAvailable()) {
+      error = 'Pali Wallet no está instalada. Visita pali.syscoin.org';
       return;
     }
-
     isConnecting = true;
-
     try {
-      // Solicitar acceso a las cuentas
-      const accounts = await window.ethereum.request({
-        method: 'eth_requestAccounts'
-      });
-
-      if (accounts.length === 0) {
-        error = 'No se encontraron cuentas. Asegúrate de tener una cuenta en Pali Wallet.';
-        return;
-      }
-
-      account = accounts[0];
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      if (!accounts.length) { error = 'No se encontraron cuentas.'; return; }
+      account     = accounts[0];
       isConnected = true;
-
-      // Leer el saldo usando eth_getBalance
-      await loadBalance(account);
-
-      // Leer la red actual
       await loadNetwork();
-
-      // Escuchar cambios de cuenta
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
-      window.ethereum.on('chainChanged', handleChainChanged);
-
-    } catch (err) {
-      if (err.code === 4001) {
-        error = 'Conexión rechazada. El usuario denegó el acceso a la wallet.';
-      } else {
-        error = `Error al conectar: ${err.message}`;
-      }
+      window.ethereum.on('accountsChanged', onAccountsChanged);
+      window.ethereum.on('chainChanged',    onChainChanged);
+    } catch (e) {
+      error = e.code === 4001 ? 'Conexión rechazada por el usuario.' : `Error: ${e.message}`;
     } finally {
       isConnecting = false;
     }
   }
 
-  // Leer saldo
-  async function loadBalance(address) {
-    try {
-      // eth_getBalance devuelve el saldo en wei (hexadecimal)
-      const balanceWei = await window.ethereum.request({
-        method: 'eth_getBalance',
-        params: [address, 'latest']
-      });
-
-      // Convertir de wei (hex) a ETH
-      const balanceBigInt = BigInt(balanceWei);
-      const balanceEth = Number(balanceBigInt) / 1e18;
-      balance = balanceEth.toFixed(6);
-    } catch (err) {
-      balance = 'Error al leer saldo';
-    }
-  }
-
-  // Leer red
   async function loadNetwork() {
     try {
-      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-      const chainIdNum = parseInt(chainId, 16);
-      const networks = {
-        1: 'Ethereum Mainnet',
-        5: 'Goerli Testnet',
-        11155111: 'Sepolia Testnet',
-        137: 'Polygon Mainnet',
-        80001: 'Mumbai Testnet',
-        57: 'Syscoin Mainnet',
-        5700: 'Syscoin Testnet (Tanenbaum)',
+      const cid = await window.ethereum.request({ method: 'eth_chainId' });
+      chainId = parseInt(cid, 16);
+      const NAMES = {
+        1:'Ethereum', 11155111:'Sepolia', 137:'Polygon', 80001:'Mumbai',
+        80002:'Amoy', 56:'BNB Chain', 97:'BNB Testnet', 57:'Syscoin',
+        5700:'Tanenbaum', 570:'Rollux', 57000:'Rollux Testnet',
+        43114:'Avalanche', 250:'Fantom', 42161:'Arbitrum', 10:'Optimism',
       };
-      networkName = networks[chainIdNum] || `Chain ID: ${chainIdNum}`;
-    } catch (err) {
-      networkName = 'Red desconocida';
-    }
+      networkName = NAMES[chainId] || `Chain ${chainId}`;
+    } catch (_) { networkName = 'Desconocida'; }
   }
 
-  // Manejar cambio de cuenta
-  function handleAccountsChanged(accounts) {
-    if (accounts.length === 0) {
-      disconnectWallet();
-    } else {
-      account = accounts[0];
-      loadBalance(account);
-    }
+  function onAccountsChanged(accs) {
+    if (!accs.length) disconnectWallet(); else { account = accs[0]; }
   }
+  function onChainChanged() { loadNetwork(); }
 
-  // Manejar cambio de red
-  function handleChainChanged() {
-    window.location.reload();
-  }
-
-  // Desconectar
   function disconnectWallet() {
-    account = null;
-    balance = null;
-    networkName = null;
-    isConnected = false;
-    error = null;
-
+    account = null; networkName = null; chainId = null;
+    isConnected = false; error = null;
     if (window.ethereum) {
-      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-      window.ethereum.removeListener('chainChanged', handleChainChanged);
+      window.ethereum.removeListener('accountsChanged', onAccountsChanged);
+      window.ethereum.removeListener('chainChanged',    onChainChanged);
     }
   }
 
-  // Formatear address para mostrar (0x1234...5678)
-  function formatAddress(addr) {
-    if (!addr) return '';
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  function shortAddr(addr) {
+    return addr ? `${addr.slice(0,6)}...${addr.slice(-4)}` : '';
   }
 
-  // Copiar address al portapapeles
   async function copyAddress() {
-    if (account) {
-      await navigator.clipboard.writeText(account);
-      alert('Address copiada al portapapeles');
-    }
+    if (account) await navigator.clipboard.writeText(account);
   }
 
   onMount(() => {
-    // Verificar si ya hay una conexión activa al cargar
-    if (isPaliWalletAvailable()) {
-      window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
-        if (accounts.length > 0) {
-          account = accounts[0];
-          isConnected = true;
-          loadBalance(account);
-          loadNetwork();
-          window.ethereum.on('accountsChanged', handleAccountsChanged);
-          window.ethereum.on('chainChanged', handleChainChanged);
-        }
-      });
+    if (isPaliAvailable()) {
+      window.ethereum.request({ method: 'eth_accounts' })
+        .then(accs => {
+          if (accs.length) {
+            account = accs[0]; isConnected = true;
+            loadNetwork();
+            window.ethereum.on('accountsChanged', onAccountsChanged);
+            window.ethereum.on('chainChanged',    onChainChanged);
+          }
+        }).catch(() => {});
     }
   });
 </script>
 
-<main>
-  <div class="container">
-    <!-- Header -->
-    <div class="header">
-      <div class="logo-area">
-        <div class="wallet-icon">🔐</div>
-        <div>
-          <h1>Pali Wallet Demo</h1>
-          <p class="subtitle">SID - Sistemas Distribuidos</p>
-        </div>
-      </div>
+<div class="shell">
 
-      {#if isConnected}
-        <div class="status-badge connected">
-          <span class="dot"></span> Conectado
-        </div>
-      {:else}
-        <div class="status-badge disconnected">
-          <span class="dot"></span> Desconectado
-        </div>
-      {/if}
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <aside class="sidebar">
+
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">Pali DApp</span>
+        <span class="brand-sub">SID · Valle Grande</span>
+      </div>
     </div>
 
-    <!-- Error -->
-    {#if error}
-      <div class="alert error">
-        <span>⚠️</span>
-        <p>{error}</p>
-      </div>
-    {/if}
-
-    <!-- No conectado -->
-    {#if !isConnected}
-      <div class="connect-card">
-        <div class="connect-illustration">🦊</div>
-        <h2>Conecta tu Pali Wallet</h2>
-        <p>Haz clic en el botón para iniciar sesión con tu wallet y ver tu address y saldo.</p>
-
-        {#if !isPaliWalletAvailable()}
-          <div class="alert warning">
-            <span>⚠️</span>
-            <p>Pali Wallet no detectada. Instálala desde <a href="https://pali.syscoin.org" target="_blank">pali.syscoin.org</a></p>
-          </div>
-        {/if}
-
+    <nav class="nav">
+      {#each NAV_ITEMS as item}
         <button
-          class="btn-connect"
-          onclick={connectWallet}
-          disabled={isConnecting}
+          class="nav-item"
+          class:active={currentPage === item.id}
+          onclick={() => currentPage = item.id}
         >
+          <span class="nav-indicator"></span>
+          {item.label}
+        </button>
+      {/each}
+    </nav>
+
+    <div class="sidebar-footer">
+      {#if isConnected}
+        <div class="wallet-panel">
+          <div class="wallet-panel-header">
+            <div class="status-indicator connected"></div>
+            <span class="wallet-panel-label">Conectado</span>
+            <button class="btn-icon-ghost" onclick={disconnectWallet} title="Desconectar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+          <button class="wallet-addr-btn" onclick={copyAddress}>
+            <code>{shortAddr(account)}</code>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <rect x="9" y="9" width="13" height="13" rx="2"/>
+              <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+            </svg>
+          </button>
+          {#if networkName}
+            <div class="wallet-network">
+              <span class="net-dot"></span>
+              {networkName}
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <button class="btn-connect" onclick={connectWallet} disabled={isConnecting}>
           {#if isConnecting}
             <span class="spinner"></span> Conectando...
           {:else}
-            🔗 Conectar Pali Wallet
+            Conectar Wallet
           {/if}
         </button>
-      </div>
+        {#if !isPaliAvailable()}
+          <a href="https://pali.syscoin.org" target="_blank" rel="noopener noreferrer" class="install-hint">
+            Instalar Pali Wallet →
+          </a>
+        {/if}
+      {/if}
 
-    <!-- Conectado -->
-    {:else}
-      <div class="wallet-cards">
-
-        <!-- Card: Address -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-icon">👤</div>
-            <h3>Address de la Wallet</h3>
-          </div>
-          <div class="address-display">
-            <code class="address-full">{account}</code>
-            <code class="address-short">{formatAddress(account)}</code>
-          </div>
-          <button class="btn-copy" onclick={copyAddress}>
-            📋 Copiar Address
-          </button>
-        </div>
-
-        <!-- Card: Saldo -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-icon">💰</div>
-            <h3>Saldo</h3>
-          </div>
-          {#if balance !== null}
-            <div class="balance-display">
-              <span class="balance-amount">{balance}</span>
-              <span class="balance-unit">ETH</span>
-            </div>
-          {:else}
-            <p class="loading">Cargando saldo...</p>
-          {/if}
-          <button class="btn-refresh" onclick={() => loadBalance(account)}>
-            🔄 Actualizar saldo
-          </button>
-        </div>
-
-        <!-- Card: Red -->
-        <div class="card">
-          <div class="card-header">
-            <div class="card-icon">🌐</div>
-            <h3>Red Conectada</h3>
-          </div>
-          <div class="network-display">
-            <span class="network-name">{networkName ?? 'Cargando...'}</span>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- Botón desconectar -->
-      <button class="btn-disconnect" onclick={disconnectWallet}>
-        🔌 Desconectar
-      </button>
-    {/if}
-
-    <!-- Footer informativo -->
-    <div class="info-section">
-      <h3>¿Cómo funciona?</h3>
-      <div class="steps">
-        <div class="step">
-          <div class="step-num">1</div>
-          <p>La app detecta <code>window.ethereum</code> inyectado por Pali Wallet en el navegador</p>
-        </div>
-        <div class="step">
-          <div class="step-num">2</div>
-          <p>Usa <code>eth_requestAccounts</code> para solicitar acceso y obtener el address</p>
-        </div>
-        <div class="step">
-          <div class="step-num">3</div>
-          <p>Usa <code>eth_getBalance</code> para leer el saldo en wei y lo convierte a ETH</p>
-        </div>
-      </div>
+      {#if error}
+        <div class="sidebar-error">{error}</div>
+      {/if}
     </div>
 
-  </div>
-</main>
+  </aside>
+
+  <!-- ── Barra mobile ─────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+        <path d="M2 17l10 5 10-5"/>
+        <path d="M2 12l10 5 10-5"/>
+      </svg>
+      Pali DApp
+    </div>
+    <div class="topbar-wallet">
+      {#if isConnected}
+        <div class="topbar-connected">
+          <div class="status-indicator connected"></div>
+          <code>{shortAddr(account)}</code>
+        </div>
+      {:else}
+        <button class="btn-connect-sm" onclick={connectWallet} disabled={isConnecting}>
+          Conectar
+        </button>
+      {/if}
+    </div>
+  </header>
+
+  <!-- ── Tabs mobile ──────────────────────────────────────────── -->
+  <nav class="bottom-tabs">
+    {#each NAV_ITEMS as item}
+      <button
+        class="bottom-tab"
+        class:active={currentPage === item.id}
+        onclick={() => currentPage = item.id}
+      >
+        {item.short}
+      </button>
+    {/each}
+  </nav>
+
+  <!-- ── Contenido ────────────────────────────────────────────── -->
+  <main class="main">
+    <div class="page-wrap">
+      {#if currentPage === 'home'}
+        <HomePage {account} {isConnected} onConnect={connectWallet} />
+      {:else if currentPage === 'transaction'}
+        <TransactionPage {account} {isConnected} onConnect={connectWallet} />
+      {:else if currentPage === 'network'}
+        <NetworkPage {account} {isConnected} onConnect={connectWallet} />
+      {:else if currentPage === 'balance'}
+        <BalancePage {account} {isConnected} onConnect={connectWallet} />
+      {/if}
+    </div>
+  </main>
+
+</div>
 
 <style>
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
-  :global(body) {
-    background: #0f0f1a;
-    color: #e2e8f0;
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    min-height: 100vh;
-  }
-
-  main {
-    min-height: 100vh;
-    padding: 2rem 1rem;
-    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
-  }
-
-  .container {
-    max-width: 800px;
-    margin: 0 auto;
-  }
-
-  /* Header */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 2rem;
-    padding: 1.5rem;
-    background: rgba(255,255,255,0.05);
-    border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.1);
-  }
-
-  .logo-area {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-  }
-
-  .wallet-icon {
-    font-size: 2.5rem;
-  }
-
-  h1 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .subtitle {
-    font-size: 0.8rem;
-    color: #64748b;
-    margin-top: 0.2rem;
-  }
-
-  .status-badge {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 1rem;
-    border-radius: 20px;
-    font-size: 0.85rem;
-    font-weight: 600;
-  }
-
-  .status-badge.connected {
-    background: rgba(34, 197, 94, 0.15);
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.3);
-  }
-
-  .status-badge.disconnected {
-    background: rgba(100, 116, 139, 0.15);
-    color: #94a3b8;
-    border: 1px solid rgba(100, 116, 139, 0.3);
-  }
-
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-
-  /* Alerts */
-  .alert {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 1rem 1.25rem;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-    font-size: 0.9rem;
-  }
-
-  .alert.error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
-  }
-
-  .alert.warning {
-    background: rgba(234, 179, 8, 0.1);
-    border: 1px solid rgba(234, 179, 8, 0.3);
-    color: #fde047;
-    margin-top: 1rem;
-  }
-
-  .alert a {
-    color: inherit;
-    font-weight: 600;
-  }
-
-  /* Connect card */
-  .connect-card {
-    text-align: center;
-    padding: 3rem 2rem;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 20px;
-    margin-bottom: 2rem;
-  }
-
-  .connect-illustration {
-    font-size: 4rem;
-    margin-bottom: 1rem;
-  }
-
-  .connect-card h2 {
-    font-size: 1.5rem;
-    margin-bottom: 0.75rem;
-    color: #e2e8f0;
-  }
-
-  .connect-card p {
-    color: #94a3b8;
-    margin-bottom: 2rem;
-    line-height: 1.6;
-  }
-
-  /* Botones */
-  .btn-connect {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: white;
-    border: none;
-    padding: 0.9rem 2.5rem;
-    border-radius: 12px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    transition: all 0.2s ease;
-  }
-
-  .btn-connect:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
-  }
-
-  .btn-connect:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-
-  .spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid rgba(255,255,255,0.3);
-    border-top-color: white;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    display: inline-block;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  /* Wallet cards */
-  .wallet-cards {
+  /* ── Shell layout ───────────────────────────────────────────── */
+  .shell {
     display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
+    grid-template-columns: 220px 1fr;
+    grid-template-areas: 'sidebar main';
+    min-height: 100vh;
+    background: var(--bg-base);
   }
 
-  .card {
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 16px;
-    padding: 1.5rem;
-    transition: border-color 0.2s;
-  }
-
-  .card:hover {
-    border-color: rgba(99, 102, 241, 0.4);
-  }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-  }
-
-  .card-icon {
-    font-size: 1.5rem;
-  }
-
-  .card-header h3 {
-    font-size: 1rem;
-    color: #94a3b8;
-    font-weight: 500;
-  }
-
-  /* Address */
-  .address-display {
-    background: rgba(0,0,0,0.3);
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1rem;
-    word-break: break-all;
-  }
-
-  .address-full {
-    font-size: 0.8rem;
-    color: #a5b4fc;
-    display: block;
-  }
-
-  .address-short {
-    display: none;
-    font-size: 1rem;
-    color: #a5b4fc;
-  }
-
-  @media (max-width: 480px) {
-    .address-full { display: none; }
-    .address-short { display: block; }
-  }
-
-  .btn-copy {
-    background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
-    border: 1px solid rgba(99, 102, 241, 0.3);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: all 0.2s;
-  }
-
-  .btn-copy:hover {
-    background: rgba(99, 102, 241, 0.3);
-  }
-
-  /* Balance */
-  .balance-display {
-    display: flex;
-    align-items: baseline;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-  }
-
-  .balance-amount {
-    font-size: 2rem;
-    font-weight: 700;
-    color: #22c55e;
-  }
-
-  .balance-unit {
-    font-size: 1rem;
-    color: #64748b;
-  }
-
-  .loading {
-    color: #64748b;
-    font-style: italic;
-    margin-bottom: 1rem;
-  }
-
-  .btn-refresh {
-    background: rgba(34, 197, 94, 0.1);
-    color: #86efac;
-    border: 1px solid rgba(34, 197, 94, 0.25);
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: all 0.2s;
-  }
-
-  .btn-refresh:hover {
-    background: rgba(34, 197, 94, 0.2);
-  }
-
-  /* Network */
-  .network-display {
-    background: rgba(0,0,0,0.3);
-    border-radius: 10px;
-    padding: 0.75rem 1rem;
-  }
-
-  .network-name {
-    color: #fbbf24;
-    font-weight: 600;
-    font-size: 1rem;
-  }
-
-  /* Disconnect */
-  .btn-disconnect {
-    width: 100%;
-    background: rgba(239, 68, 68, 0.1);
-    color: #fca5a5;
-    border: 1px solid rgba(239, 68, 68, 0.25);
-    padding: 0.75rem;
-    border-radius: 12px;
-    cursor: pointer;
-    font-size: 0.9rem;
-    font-weight: 500;
-    transition: all 0.2s;
-    margin-bottom: 2rem;
-  }
-
-  .btn-disconnect:hover {
-    background: rgba(239, 68, 68, 0.2);
-  }
-
-  /* Info section */
-  .info-section {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(255,255,255,0.07);
-    border-radius: 16px;
-    padding: 1.5rem;
-  }
-
-  .info-section h3 {
-    font-size: 0.9rem;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 1.25rem;
-  }
-
-  .steps {
+  /* ── Sidebar ────────────────────────────────────────────────── */
+  .sidebar {
+    grid-area: sidebar;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 2rem;
+    padding: 1.5rem 1rem;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border-subtle);
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
   }
 
-  .step {
+  /* Brand */
+  .brand {
     display: flex;
-    align-items: flex-start;
-    gap: 1rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 0.25rem;
   }
 
-  .step-num {
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: white;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent-glow);
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.8rem;
-    font-weight: 700;
+    color: var(--accent);
     flex-shrink: 0;
   }
 
-  .step p {
-    color: #94a3b8;
-    font-size: 0.875rem;
-    line-height: 1.6;
-    padding-top: 0.2rem;
+  .brand-mark svg { width: 16px; height: 16px; }
+
+  .brand-name {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: -0.01em;
   }
 
-  .step code {
-    background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
+  .brand-sub {
+    display: block;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
+
+  /* Nav */
+  .nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+  }
+
+  .nav-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+    font-family: var(--font-sans);
+  }
+
+  .nav-item:hover {
+    background: rgba(255,255,255,0.04);
+    color: var(--text-secondary);
+  }
+
+  .nav-item.active {
+    background: var(--accent-dim);
+    color: var(--text-accent);
+    font-weight: 600;
+  }
+
+  .nav-indicator {
+    width: 3px;
+    height: 14px;
+    border-radius: 2px;
+    background: transparent;
+    flex-shrink: 0;
+    transition: background 0.15s;
+  }
+
+  .nav-item.active .nav-indicator {
+    background: var(--accent);
+  }
+
+  /* Footer de sidebar */
+  .sidebar-footer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  /* Panel de wallet conectada */
+  .wallet-panel {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 0.875rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .wallet-panel-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .wallet-panel-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--success);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    flex: 1;
+  }
+
+  .btn-icon-ghost {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .btn-icon-ghost:hover {
+    color: var(--danger);
+    background: var(--danger-dim);
+  }
+
+  .wallet-addr-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.6rem;
+    cursor: pointer;
+    color: var(--text-accent);
+    font-size: 0.8rem;
+    transition: border-color 0.15s;
+  }
+
+  .wallet-addr-btn:hover { border-color: var(--accent-glow); }
+  .wallet-addr-btn code { font-family: var(--font-mono); font-size: 0.78rem; }
+
+  .wallet-network {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    color: var(--warning);
+    font-weight: 500;
+  }
+
+  .net-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--warning);
+    flex-shrink: 0;
+  }
+
+  /* Indicador de estado */
+  .status-indicator {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-indicator.connected {
+    background: var(--success);
+    box-shadow: 0 0 0 2px rgba(34,197,94,0.2);
+    animation: pulse-green 2.5s infinite;
+  }
+
+  @keyframes pulse-green {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.45; }
+  }
+
+  /* Botón conectar sidebar */
+  .btn-connect {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 0.65rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    transition: background 0.15s, box-shadow 0.15s;
+    font-family: var(--font-sans);
+  }
+
+  .btn-connect:hover:not(:disabled) {
+    background: var(--accent-hover);
+    box-shadow: 0 0 0 3px var(--accent-dim);
+  }
+
+  .btn-connect:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .install-hint {
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-align: center;
+    padding: 0.2rem;
+    transition: color 0.15s;
+    text-decoration: none;
+  }
+
+  .install-hint:hover { color: var(--text-primary); }
+
+  .sidebar-error {
+    font-size: 0.73rem;
+    color: #fca5a5;
+    background: var(--danger-dim);
+    border: 1px solid rgba(239,68,68,0.2);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.625rem;
+    line-height: 1.45;
+  }
+
+  /* ── Main ───────────────────────────────────────────────────── */
+  .main {
+    grid-area: main;
+    overflow-y: auto;
+    min-height: 100vh;
+  }
+
+  .page-wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem;
+  }
+
+  /* ── Mobile topbar ──────────────────────────────────────────── */
+  .topbar {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 200;
+    background: rgba(8,12,20,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 0.75rem 1.25rem;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .topbar-brand svg { color: var(--accent); }
+
+  .topbar-connected {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+
+  .topbar-connected code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-accent);
+  }
+
+  .btn-connect-sm {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 0.4rem 0.875rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: background 0.15s;
+  }
+
+  .btn-connect-sm:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-connect-sm:disabled { opacity: 0.55; }
+
+  /* ── Bottom tabs mobile ─────────────────────────────────────── */
+  .bottom-tabs {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    z-index: 200;
+    background: rgba(8,12,20,0.96);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-subtle);
+    padding: 0.4rem 0;
+  }
+
+  .bottom-tab {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 500;
+    padding: 0.5rem 0.25rem;
+    cursor: pointer;
+    transition: color 0.15s;
+    font-family: var(--font-sans);
+  }
+
+  .bottom-tab.active { color: var(--accent); font-weight: 700; }
+
+  /* ── Responsive ─────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .shell {
+      grid-template-columns: 1fr;
+      grid-template-areas: 'main';
+      padding-top: 52px;
+      padding-bottom: 64px;
+    }
+
+    .sidebar    { display: none; }
+    .topbar     { display: flex; }
+    .bottom-tabs { display: flex; }
+    .page-wrap  { padding: 1.25rem 1rem; }
+  }
+
+  /* ── Spinner ────────────────────────────────────────────────── */
+  .spinner {
+    width: 13px;
+    height: 13px;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    display: inline-block;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
